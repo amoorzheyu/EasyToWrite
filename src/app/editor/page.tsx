@@ -227,7 +227,7 @@ export default function EditorPage() {
                 style={{ width: totalWidth, height: totalHeight }}
               >
                 <FabricCanvas
-                  ref={fabricRef}
+                  canvasRef={fabricRef}
                   pageDimensions={pageDimensions}
                   regions={regions}
                   selectedRegionId={selectedId}

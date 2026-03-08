@@ -6,6 +6,7 @@ import {
   useCallback,
   forwardRef,
   useImperativeHandle,
+  type RefObject,
 } from "react";
 import type { TextRegion, PageDimension } from "@/types";
 import { DEFAULT_PARAMS } from "@/types";
@@ -18,6 +19,8 @@ export interface FabricCanvasHandle {
 }
 
 interface FabricCanvasProps {
+  /** 通过 prop 传入 ref，供 next/dynamic 包装时使用（dynamic 不转发 ref） */
+  canvasRef?: RefObject<FabricCanvasHandle | null>;
   pageDimensions: PageDimension[];
   regions: TextRegion[];
   selectedRegionId: string | null;
@@ -40,6 +43,7 @@ const REGION_STROKE_SELECTED = "rgba(99,102,241,1)";
 const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
   (
     {
+      canvasRef: canvasRefProp,
       pageDimensions,
       regions,
       selectedRegionId,
@@ -50,11 +54,15 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
     },
     ref
   ) => {
+    const refToUse = canvasRefProp ?? ref;
     const canvasElRef = useRef<HTMLCanvasElement>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fabricRef = useRef<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const objectMapRef = useRef<Map<string, any>>(new Map());
+    const regionsRef = useRef<TextRegion[]>(regions);
+    regionsRef.current = regions;
+    const prevRegionsRef = useRef<TextRegion[]>(regions);
     const isDrawingRef = useRef(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const drawStartRef = useRef<{ x: number; y: number; rect: any } | null>(null);
@@ -111,7 +119,7 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
         const fc = new Canvas(canvasElRef.current, {
           width: totalWidth,
           height: totalHeight,
-          selection: true,
+          selection: false,
           backgroundColor: "transparent",
         });
         fabricRef.current = fc;
@@ -135,6 +143,8 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             top: originY,
             width: 0,
             height: 0,
+            originX: "left",
+            originY: "top",
             fill: REGION_FILL,
             stroke: REGION_STROKE,
             strokeWidth: 1.5,
@@ -159,33 +169,26 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             left: w < 0 ? pointer.x : originX,
             top: h < 0 ? pointer.y : originY,
           });
+          drawingRect.setCoords();
           fc.renderAll();
         });
 
-        fc.on("mouse:up", (opt) => {
+        fc.on("mouse:up", () => {
           if (!isDrawingRef.current || !drawingRect) return;
           isDrawingRef.current = false;
-          const w = drawingRect.width ?? 0;
-          const h = drawingRect.height ?? 0;
+
+          // 在 remove 前保存最终位置和尺寸
+          const finalLeft = drawingRect.left ?? 0;
+          const finalTop = drawingRect.top ?? 0;
+          const finalW = drawingRect.width ?? 0;
+          const finalH = drawingRect.height ?? 0;
 
           fc.remove(drawingRect);
           drawingRect = null;
           drawStartRef.current = null;
 
           // 忽略太小的框
-          if (w < 20 || h < 20) return;
-
-          const left = drawingRect?.left ?? opt.pointer?.x ?? 0;
-          const top = drawingRect?.top ?? opt.pointer?.y ?? 0;
-
-          // 重新读取实际的 left/top（drawingRect 已更新）
-          // 此时从 opt 取最终位置
-          const finalLeft = w < 0 ? (opt.pointer?.x ?? originX) : originX;
-          const finalTop = h < 0 ? (opt.pointer?.y ?? originY) : originY;
-          const finalW = Math.abs(w);
-          const finalH = Math.abs(h);
-
-          void left; void top;
+          if (finalW < 20 || finalH < 20) return;
 
           const pageInfo = getPageAtY(finalTop + finalH / 2);
           if (!pageInfo) return;
@@ -237,20 +240,50 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           const pageDim: PageDimension = obj._pageDim;
           if (!pageDim) return;
 
+          // 使用纯几何尺寸（不含 strokeWidth），与创建时 drawingRect.width/height 保持一致
+          // getScaledWidth/Height 在 Fabric.js 6 中包含 strokeWidth，会导致每次移动后 Y 轴累积漂移
+          const w = obj.width * obj.scaleX;
+          const h = obj.height * obj.scaleY;
           const coords = fabricRectToPdfCoords(
             obj.left,
             obj.top - pageOffsetY,
-            obj.getScaledWidth(),
-            obj.getScaledHeight(),
+            w,
+            h,
             pageDim
           );
+
+          const currentRegion = regionsRef.current.find((r) => r.id === regionId);
+          const moveOnlyTolerance = 2;
+          let finalPdfW = coords.pdfWidth;
+          let finalPdfH = coords.pdfHeight;
+          let shouldNormalize = true;
+
+          if (currentRegion) {
+            const ratioW = pageDim.cssWidth / pageDim.pdfWidth;
+            const ratioH = pageDim.cssHeight / pageDim.pdfHeight;
+            const expectedW = currentRegion.pdfWidth * ratioW;
+            const expectedH = currentRegion.pdfHeight * ratioH;
+            const isMoveOnly =
+              Math.abs(w - expectedW) <= moveOnlyTolerance &&
+              Math.abs(h - expectedH) <= moveOnlyTolerance;
+            if (isMoveOnly) {
+              finalPdfW = currentRegion.pdfWidth;
+              finalPdfH = currentRegion.pdfHeight;
+              shouldNormalize = false;
+            }
+          }
+
           onUpdateRegionPosition(
             regionId,
             coords.pdfX,
             coords.pdfY,
-            coords.pdfWidth,
-            coords.pdfHeight
+            finalPdfW,
+            finalPdfH
           );
+          if (shouldNormalize) {
+            obj.set({ width: w, height: h, scaleX: 1, scaleY: 1 });
+            obj.setCoords();
+          }
         });
 
         // 自定义渲染：在 rect 上绘制手写内容图片
@@ -283,6 +316,8 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
     useEffect(() => {
       const fc = fabricRef.current;
       if (!fc || pageDimensions.length === 0) return;
+
+      const regionsUnchanged = prevRegionsRef.current === regions;
 
       import("fabric").then(({ Rect }) => {
         const existingIds = new Set(objectMapRef.current.keys());
@@ -320,14 +355,25 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
 
           if (objectMapRef.current.has(region.id)) {
             const obj = objectMapRef.current.get(region.id);
-            obj.set({
-              left: screenPos.left,
-              top: screenPos.top + offsetY,
-              width: screenPos.width,
-              height: screenPos.height,
-              stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
-              strokeWidth: isSelected ? 2 : 1.5,
-            });
+            if (regionsUnchanged) {
+              // 仅选中状态变化，不碰位置/尺寸，避免框下移
+              obj.set({
+                stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
+                strokeWidth: 1.5,
+              });
+            } else {
+              obj.set({
+                left: screenPos.left,
+                top: screenPos.top + offsetY,
+                width: screenPos.width,
+                height: screenPos.height,
+                scaleX: 1,
+                scaleY: 1,
+                stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
+                strokeWidth: 1.5,
+              });
+              obj.setCoords();
+            }
 
             // 刷新手写图
             if (region.text.trim()) {
@@ -354,9 +400,11 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
               top: screenPos.top + offsetY,
               width: screenPos.width,
               height: screenPos.height,
+              originX: "left",
+              originY: "top",
               fill: REGION_FILL,
               stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
-              strokeWidth: isSelected ? 2 : 1.5,
+              strokeWidth: 1.5,
               rx: 2,
               ry: 2,
               hasControls: true,
@@ -393,11 +441,12 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
         });
 
         fc.renderAll();
+        prevRegionsRef.current = regions;
       });
     }, [regions, pageDimensions, selectedRegionId]);
 
     /** 暴露给父组件的方法 */
-    useImperativeHandle(ref, () => ({
+    useImperativeHandle(refToUse, () => ({
       refreshRegion(regionId: string) {
         const fc = fabricRef.current;
         if (!fc) return;
