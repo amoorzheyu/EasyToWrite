@@ -408,6 +408,7 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
               rx: 2,
               ry: 2,
               hasControls: true,
+              lockRotation: true,
               lockUniScaling: false,
             });
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -417,6 +418,7 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (rect as any)._pageDim = page;
 
+            rect.setControlVisible("mtr", false);
             objectMapRef.current.set(region.id, rect);
             fc.add(rect);
 
