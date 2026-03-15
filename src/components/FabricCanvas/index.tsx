@@ -36,8 +36,9 @@ interface FabricCanvasProps {
   onDeleteRegion: (id: string) => void;
 }
 
-const REGION_FILL = "rgba(99,102,241,0.08)";
-const REGION_STROKE = "rgba(99,102,241,0.7)";
+const REGION_FILL = "transparent";
+const REGION_FILL_SELECTED = "rgba(99,102,241,0.08)";
+const REGION_STROKE = "transparent";
 const REGION_STROKE_SELECTED = "rgba(99,102,241,1)";
 
 const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
@@ -134,6 +135,8 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           const pointer = fc.getPointer(opt.e);
           // 如果点中了已有对象则不创建新区域
           if (opt.target) return;
+          // 点击空白区域时清除 React 侧选中状态（列表选中不经过 Fabric，需手动清除）
+          onSelectRegion(null);
           isDrawingRef.current = true;
           originX = pointer.x;
           originY = pointer.y;
@@ -287,6 +290,8 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
         });
 
         // 自定义渲染：在 rect 上绘制手写内容图片
+        // after:render 时 Fabric 保持着 DPR 缩放变换，坐标系为 CSS 逻辑像素
+        // 图像以 DPR 分辨率渲染，drawImage 传入 CSS 尺寸，高清图像自动映射到物理像素 → 清晰
         fc.on("after:render", () => {
           const ctx = fc.getContext();
           objectMapRef.current.forEach((obj) => {
@@ -358,8 +363,9 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             if (regionsUnchanged) {
               // 仅选中状态变化，不碰位置/尺寸，避免框下移
               obj.set({
+                fill: isSelected ? REGION_FILL_SELECTED : REGION_FILL,
                 stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
-                strokeWidth: 1.5,
+                strokeWidth: isSelected ? 1.5 : 0,
               });
             } else {
               obj.set({
@@ -369,19 +375,22 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
                 height: screenPos.height,
                 scaleX: 1,
                 scaleY: 1,
+                fill: isSelected ? REGION_FILL_SELECTED : REGION_FILL,
                 stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
-                strokeWidth: 1.5,
+                strokeWidth: isSelected ? 1.5 : 0,
               });
               obj.setCoords();
             }
 
-            // 刷新手写图
+            // 刷新手写图（以 DPR 渲染保证高清）
             if (region.text.trim()) {
+              const dpr = window.devicePixelRatio || 1;
               const dataUrl = renderHandwritingToDataUrl({
                 text: region.text,
                 params: region.params,
                 width: screenPos.width,
                 height: screenPos.height,
+                pixelRatio: dpr,
               });
               const img = new Image();
               img.src = dataUrl;
@@ -402,9 +411,9 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
               height: screenPos.height,
               originX: "left",
               originY: "top",
-              fill: REGION_FILL,
+              fill: isSelected ? REGION_FILL_SELECTED : REGION_FILL,
               stroke: isSelected ? REGION_STROKE_SELECTED : REGION_STROKE,
-              strokeWidth: 1.5,
+              strokeWidth: isSelected ? 1.5 : 0,
               rx: 2,
               ry: 2,
               hasControls: true,
@@ -423,11 +432,13 @@ const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             fc.add(rect);
 
             if (region.text.trim()) {
+              const dpr = window.devicePixelRatio || 1;
               const dataUrl = renderHandwritingToDataUrl({
                 text: region.text,
                 params: region.params,
                 width: screenPos.width,
                 height: screenPos.height,
+                pixelRatio: dpr,
               });
               const img = new Image();
               img.src = dataUrl;

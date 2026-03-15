@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { TextRegion, PageDimension } from "@/types";
 import { retrievePdf } from "@/lib/pdf-store";
+import { useFonts } from "@/lib/use-fonts";
 import { exportPdfWithHandwriting, downloadUint8ArrayAsPdf } from "@/lib/pdf-export";
 import PropertiesPanel from "@/components/PropertiesPanel";
 import type { FabricCanvasHandle } from "@/components/FabricCanvas";
@@ -38,6 +39,7 @@ export default function EditorPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scale, setScale] = useState(1.2);
   const [exporting, setExporting] = useState(false);
+  const { fonts, fontsLoaded, error: fontsError } = useFonts();
 
   // 从 sessionStorage 读取 PDF
   useEffect(() => {
@@ -257,6 +259,11 @@ export default function EditorPage() {
         >
           <PropertiesPanel
             region={selectedRegion}
+            regions={regions}
+            fonts={fonts}
+            fontsLoaded={fontsLoaded}
+            fontsError={fontsError}
+            onSelectRegion={setSelectedId}
             onUpdateRegion={handleUpdateRegion}
             onDeleteRegion={handleDeleteRegion}
           />

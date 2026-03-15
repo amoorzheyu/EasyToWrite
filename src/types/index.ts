@@ -16,6 +16,8 @@ export interface HandwritingParams {
 
 export interface TextRegion {
   id: string;
+  /** 用户自定义的区域名称，未设置时显示默认序号名 */
+  name?: string;
   /** 在对应页面的 PDF 点坐标系中的位置（原点左下角） */
   pdfX: number;
   pdfY: number;
@@ -39,14 +41,14 @@ export interface PageDimension {
   scale: number;
 }
 
-export const HANDWRITING_FONTS: { value: string; label: string; lang: "zh" | "en" }[] = [
-  { value: "Ma Shan Zheng", label: "马善政体", lang: "zh" },
-  { value: "ZCOOL KuaiLe", label: "站酷快乐体", lang: "zh" },
-  { value: "Long Cang", label: "龙藏体", lang: "zh" },
-  { value: "Caveat", label: "Caveat", lang: "en" },
-  { value: "Kalam", label: "Kalam", lang: "en" },
-  { value: "Patrick Hand", label: "Patrick Hand", lang: "en" },
-];
+/** 从后端 /api/fonts 返回的字体元数据 */
+export interface FontMeta {
+  id: string;
+  label: string;
+  fontFamily: string;
+  lang: "zh" | "en";
+  file: string;
+}
 
 export const DEFAULT_PARAMS: HandwritingParams = {
   fontFamily: "Ma Shan Zheng",

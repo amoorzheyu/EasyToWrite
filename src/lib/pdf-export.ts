@@ -22,13 +22,15 @@ export async function exportPdfWithHandwriting(
     const pageDim = pageDimensions.find((p) => p.pageIndex === region.pageIndex);
     if (!pageDim) continue;
 
-    // 高分辨率渲染（2x）
+    // 以屏幕 CSS 像素尺寸为基准渲染，pixelRatio:2 确保字体等比放大（高清输出）
+    const cssW = region.pdfWidth * (pageDim.cssWidth / pageDim.pdfWidth);
+    const cssH = region.pdfHeight * (pageDim.cssHeight / pageDim.pdfHeight);
     const pngBytes = await renderHandwritingToPngBytes({
       text: region.text,
       params: region.params,
-      width: region.pdfWidth * (pageDim.cssWidth / pageDim.pdfWidth) * 2,
-      height: region.pdfHeight * (pageDim.cssWidth / pageDim.pdfWidth) * 2,
-      pixelRatio: 1,
+      width: cssW,
+      height: cssH,
+      pixelRatio: 2,
     });
 
     const pngImage = await pdfDoc.embedPng(pngBytes);
